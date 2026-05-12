@@ -1,101 +1,169 @@
-# =========================
-# SQLITE FIX FOR CHROMADB
-# =========================
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-
-# =========================
-# IMPORTS
-# =========================
 import streamlit as st
-
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains.question_answering import load_qa_chain
-from langchain.llms import HuggingFaceHub
-from langchain.docstore.document import Document
+from groq import Groq
 
 # =========================
 # PAGE CONFIG
 # =========================
 st.set_page_config(
-    page_title="Return & Refund Assistant",
+    page_title="AI Return & Refund Assistant",
     page_icon="🤖",
     layout="wide"
 )
 
-st.title("🤖 Return & Refund Assistant")
+# =========================
+# CUSTOM CSS
+# =========================
+st.markdown("""
+<style>
+.main {
+    background-color: #0E1117;
+    color: white;
+}
+
+.stTextInput input {
+    border-radius: 10px;
+}
+
+.chat-box {
+    padding: 15px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+}
+
+.user-msg {
+    background-color: #1E293B;
+}
+
+.bot-msg {
+    background-color: #111827;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # =========================
-# LOAD DATA
+# TITLE
 # =========================
-@st.cache_resource
-def load_vector_db():
+st.title("🤖 AI Return & Refund Assistant")
+st.caption("Smart AI-powered customer support assistant")
 
-    with open("data.txt", "r", encoding="utf-8") as f:
-        text = f.read()
+# =========================
+# SIDEBAR
+# =========================
+with st.sidebar:
+    st.header("⚙️ Settings")
 
-    # Convert to document
-    docs = [Document(page_content=text)]
-
-    # Split text
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50
+    company_name = st.text_input(
+        "Company Name",
+        value="ShopEasy"
     )
 
-    split_docs = splitter.split_documents(docs)
-
-    # Embeddings
-    embedding = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    refund_days = st.slider(
+        "Refund Window (Days)",
+        1,
+        30,
+        7
     )
 
-    # Vector DB
-    vectordb = Chroma.from_documents(
-        documents=split_docs,
-        embedding=embedding,
-        persist_directory="./chroma_db"
+    support_email = st.text_input(
+        "Support Email",
+        value="support@shopeasy.com"
     )
 
-    return vectordb
+# =========================
+# GROQ CLIENT
+# =========================
+client = Groq(
+    api_key=st.secrets["GROQ_API_KEY"]
+)
 
 # =========================
-# LOAD VECTOR DB
+# SYSTEM PROMPT
 # =========================
-vectordb = load_vector_db()
+SYSTEM_PROMPT = f"""
+You are a professional AI customer support assistant for {company_name}.
+
+Company Policies:
+- Customers can return products within {refund_days} days.
+- Refunds take 5 business days.
+- Damaged products get full refunds.
+- Digital products are non-refundable.
+- Support Email: {support_email}
+
+Rules:
+- Be professional.
+- Give clear refund guidance.
+- Help users solve issues.
+- Answer in a friendly tone.
+- Keep responses concise but useful.
+"""
+
+# =========================
+# SESSION STATE
+# =========================
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# =========================
+# DISPLAY CHAT
+# =========================
+for msg in st.session_state.messages:
+
+    role_class = "user-msg" if msg["role"] == "user" else "bot-msg"
+
+    st.markdown(
+        f"""
+        <div class="chat-box {role_class}">
+        <b>{msg["role"].capitalize()}:</b><br>
+        {msg["content"]}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # =========================
 # USER INPUT
 # =========================
-query = st.text_input(
-    "Ask your question about returns/refunds:"
+user_input = st.chat_input(
+    "Ask about refunds, returns, damaged products..."
 )
 
 # =========================
-# QA SYSTEM
+# PROCESS INPUT
 # =========================
-if query:
+if user_input:
 
-    docs = vectordb.similarity_search(query, k=3)
+    # Save user message
+    st.session_state.messages.append({
+        "role": "user",
+        "content": user_input
+    })
 
-    # FREE HF MODEL
-    llm = HuggingFaceHub(
-        repo_id="google/flan-t5-base",
-        huggingfacehub_api_token=st.secrets["HUGGINGFACE_API_TOKEN"],
-        model_kwargs={
-            "temperature": 0.5,
-            "max_length": 256
+    # Build conversation
+    conversation = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT
         }
-    )
+    ]
 
-    chain = load_qa_chain(llm, chain_type="stuff")
+    conversation.extend(st.session_state.messages)
 
-    response = chain.run(
-        input_documents=docs,
-        question=query
-    )
+    # AI RESPONSE
+    with st.spinner("Thinking..."):
 
-    st.success(response)
+        response = client.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=conversation,
+            temperature=0.5,
+            max_tokens=500
+        )
+
+        ai_reply = response.choices[0].message.content
+
+    # Save assistant response
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": ai_reply
+    })
+
+    st.rerun()
