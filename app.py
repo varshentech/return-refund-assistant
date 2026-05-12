@@ -1,49 +1,101 @@
+# =========================
+# SQLITE FIX FOR CHROMADB
+# =========================
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
+# =========================
+# IMPORTS
+# =========================
 import streamlit as st
 
-from langchain_community.document_loaders import TextLoader
-from langchain_text_splitters import CharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.chains.question_answering import load_qa_chain
+from langchain.llms import HuggingFaceHub
+from langchain.docstore.document import Document
 
-# Load policy file
-loader = TextLoader("policy.txt")
-documents = loader.load()
-
-# Split text into chunks
-text_splitter = CharacterTextSplitter(
-    chunk_size=100,
-    chunk_overlap=20
+# =========================
+# PAGE CONFIG
+# =========================
+st.set_page_config(
+    page_title="Return & Refund Assistant",
+    page_icon="🤖",
+    layout="wide"
 )
 
-docs = text_splitter.split_documents(documents)
+st.title("🤖 Return & Refund Assistant")
 
-# Create embeddings
-embedding = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+# =========================
+# LOAD DATA
+# =========================
+@st.cache_resource
+def load_vector_db():
+
+    with open("data.txt", "r", encoding="utf-8") as f:
+        text = f.read()
+
+    # Convert to document
+    docs = [Document(page_content=text)]
+
+    # Split text
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50
+    )
+
+    split_docs = splitter.split_documents(docs)
+
+    # Embeddings
+    embedding = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+
+    # Vector DB
+    vectordb = Chroma.from_documents(
+        documents=split_docs,
+        embedding=embedding,
+        persist_directory="./chroma_db"
+    )
+
+    return vectordb
+
+# =========================
+# LOAD VECTOR DB
+# =========================
+vectordb = load_vector_db()
+
+# =========================
+# USER INPUT
+# =========================
+query = st.text_input(
+    "Ask your question about returns/refunds:"
 )
 
-# Store vectors in ChromaDB
-vectordb = Chroma.from_documents(
-    docs,
-    embedding
-)
+# =========================
+# QA SYSTEM
+# =========================
+if query:
 
-# Streamlit UI
-st.title("AI Return & Refund Assistant")
+    docs = vectordb.similarity_search(query, k=3)
 
-question = st.text_input("Ask your question:")
+    # FREE HF MODEL
+    llm = HuggingFaceHub(
+        repo_id="google/flan-t5-base",
+        huggingfacehub_api_token=st.secrets["HUGGINGFACE_API_TOKEN"],
+        model_kwargs={
+            "temperature": 0.5,
+            "max_length": 256
+        }
+    )
 
-if st.button("Submit"):
+    chain = load_qa_chain(llm, chain_type="stuff")
 
-    if question:
+    response = chain.run(
+        input_documents=docs,
+        question=query
+    )
 
-        # Semantic similarity search
-        results = vectordb.similarity_search(question, k=1)
-
-        st.write("### AI Response:")
-
-        for result in results:
-            st.write(result.page_content)
-
-    else:
-        st.write("Please enter a question.")
+    st.success(response)
