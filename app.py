@@ -1,11 +1,11 @@
 import streamlit as st
-from groq import Groq
+import random
 
 # =========================
 # PAGE CONFIG
 # =========================
 st.set_page_config(
-    page_title="AI Return & Refund Assistant",
+    page_title="Return & Refund Assistant",
     page_icon="🤖",
     layout="wide"
 )
@@ -15,42 +15,45 @@ st.set_page_config(
 # =========================
 st.markdown("""
 <style>
+
 .main {
     background-color: #0E1117;
     color: white;
+}
+
+.chat-container {
+    padding: 15px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+}
+
+.user-box {
+    background-color: #1E293B;
+}
+
+.bot-box {
+    background-color: #111827;
 }
 
 .stTextInput input {
     border-radius: 10px;
 }
 
-.chat-box {
-    padding: 15px;
-    border-radius: 12px;
-    margin-bottom: 10px;
-}
-
-.user-msg {
-    background-color: #1E293B;
-}
-
-.bot-msg {
-    background-color: #111827;
-}
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
 # TITLE
 # =========================
-st.title("🤖 AI Return & Refund Assistant")
-st.caption("Smart AI-powered customer support assistant")
+st.title("🤖 Return & Refund Assistant")
+st.caption("AI-powered customer support system")
 
 # =========================
-# SIDEBAR
+# SIDEBAR SETTINGS
 # =========================
 with st.sidebar:
-    st.header("⚙️ Settings")
+
+    st.header("⚙️ Company Settings")
 
     company_name = st.text_input(
         "Company Name",
@@ -58,7 +61,7 @@ with st.sidebar:
     )
 
     refund_days = st.slider(
-        "Refund Window (Days)",
+        "Refund Window",
         1,
         30,
         7
@@ -70,50 +73,114 @@ with st.sidebar:
     )
 
 # =========================
-# GROQ CLIENT
-# =========================
-client = Groq(
-    api_key=st.secrets["GROQ_API_KEY"]
-)
-
-# =========================
-# SYSTEM PROMPT
-# =========================
-SYSTEM_PROMPT = f"""
-You are a professional AI customer support assistant for {company_name}.
-
-Company Policies:
-- Customers can return products within {refund_days} days.
-- Refunds take 5 business days.
-- Damaged products get full refunds.
-- Digital products are non-refundable.
-- Support Email: {support_email}
-
-Rules:
-- Be professional.
-- Give clear refund guidance.
-- Help users solve issues.
-- Answer in a friendly tone.
-- Keep responses concise but useful.
-"""
-
-# =========================
 # SESSION STATE
 # =========================
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # =========================
+# RESPONSE ENGINE
+# =========================
+def generate_response(user_query):
+
+    query = user_query.lower()
+
+    greetings = [
+        "Hello 👋 How can I help you today?",
+        "Hi there! Need help with returns or refunds?",
+        "Welcome! Tell me your issue."
+    ]
+
+    # GREETING
+    if any(word in query for word in ["hi", "hello", "hey"]):
+        return random.choice(greetings)
+
+    # REFUND STATUS
+    elif "refund" in query and "status" in query:
+        return f"""
+Your refund is usually processed within 5 business days.
+
+If the refund is delayed, contact:
+📧 {support_email}
+"""
+
+    # RETURN POLICY
+    elif "return policy" in query or "return" in query:
+        return f"""
+📦 Return Policy for {company_name}
+
+✅ Products can be returned within {refund_days} days.
+
+✅ Items must be unused and in original packaging.
+
+✅ Damaged products are eligible for full refund.
+"""
+
+    # DAMAGED PRODUCT
+    elif "damaged" in query or "broken" in query:
+        return f"""
+We're sorry your product arrived damaged.
+
+✅ You are eligible for:
+- Full refund
+- Replacement
+- Return shipping support
+
+Please contact:
+📧 {support_email}
+"""
+
+    # CANCEL ORDER
+    elif "cancel" in query:
+        return """
+Orders can only be cancelled before shipping.
+
+If already shipped:
+- You can initiate a return request after delivery.
+"""
+
+    # DIGITAL PRODUCTS
+    elif "digital" in query:
+        return """
+❌ Digital products are non-refundable once purchased.
+"""
+
+    # SHIPPING
+    elif "shipping" in query:
+        return """
+🚚 Standard shipping takes 3-7 business days.
+
+Express shipping takes 1-2 business days.
+"""
+
+    # DEFAULT RESPONSE
+    else:
+        return f"""
+I couldn't fully understand your request.
+
+Please contact our support team:
+
+📧 {support_email}
+
+Or ask about:
+- Refund status
+- Return policy
+- Damaged items
+- Shipping
+- Order cancellation
+"""
+
+# =========================
 # DISPLAY CHAT
 # =========================
 for msg in st.session_state.messages:
 
-    role_class = "user-msg" if msg["role"] == "user" else "bot-msg"
+    role_class = "user-box" if msg["role"] == "user" else "bot-box"
 
     st.markdown(
         f"""
-        <div class="chat-box {role_class}">
-        <b>{msg["role"].capitalize()}:</b><br>
+        <div class="chat-container {role_class}">
+        <b>{msg["role"].capitalize()}:</b><br><br>
         {msg["content"]}
         </div>
         """,
@@ -121,49 +188,30 @@ for msg in st.session_state.messages:
     )
 
 # =========================
-# USER INPUT
+# CHAT INPUT
 # =========================
 user_input = st.chat_input(
-    "Ask about refunds, returns, damaged products..."
+    "Ask about refunds, returns, shipping..."
 )
 
 # =========================
-# PROCESS INPUT
+# PROCESS MESSAGE
 # =========================
 if user_input:
 
-    # Save user message
+    # SAVE USER MESSAGE
     st.session_state.messages.append({
         "role": "user",
         "content": user_input
     })
 
-    # Build conversation
-    conversation = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        }
-    ]
+    # GENERATE BOT RESPONSE
+    response = generate_response(user_input)
 
-    conversation.extend(st.session_state.messages)
-
-    # AI RESPONSE
-    with st.spinner("Thinking..."):
-
-        response = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=conversation,
-            temperature=0.5,
-            max_tokens=500
-        )
-
-        ai_reply = response.choices[0].message.content
-
-    # Save assistant response
+    # SAVE BOT RESPONSE
     st.session_state.messages.append({
         "role": "assistant",
-        "content": ai_reply
+        "content": response
     })
 
     st.rerun()
