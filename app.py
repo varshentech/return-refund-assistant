@@ -11,8 +11,8 @@ documents = loader.load()
 
 # Split text into chunks
 text_splitter = CharacterTextSplitter(
-    chunk_size=100,
-    chunk_overlap=20
+    chunk_size=250,
+    chunk_overlap=30
 )
 
 docs = text_splitter.split_documents(documents)
